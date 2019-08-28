@@ -5,7 +5,11 @@ const CleanWebpackPlugin = require('clean-webpack-plugin')
 const HtmlWebpackPlugin = require('html-webpack-plugin')
 const UglifyJSPlugin = require('uglifyjs-webpack-plugin')
 const Webpack = require('webpack')
-const PATHS = require('./../../config/paths')
+const path = require('path')
+const PATHS = require('./config/paths')
+
+const mainProcessBabelConfig = require(`./packages/main-process/babel.config`)
+const securityProcessBabelConfig = require(`./packages/security-process/babel.config`)
 
 let envConfig = {}
 let manifestCacheBust = new Date().getTime()
@@ -17,7 +21,9 @@ module.exports = {
     fs: 'empty'
   },
   entry: {
-    app: ['@babel/polyfill', PATHS.src + '/index.js']
+    index: ['@babel/polyfill', `./packages/root-process/src/index.js`],
+    main: ['@babel/polyfill', './packages/main-process/src/index.js'],
+    security: ['@babel/polyfill', './packages/security-process/src/index.js']
   },
   output: {
     path: PATHS.ciBuild,
@@ -30,9 +36,27 @@ module.exports = {
     rules: [
       {
         test: /\.js$/,
+        include: path.resolve(__dirname, `packages/security-process/src`),
         use: [
           { loader: 'thread-loader', options: { workerParallelJobs: 50 } },
-          'babel-loader'
+          {
+            loader: 'babel-loader',
+            options: securityProcessBabelConfig(
+              null,
+              `./packages/security-process`
+            )
+          }
+        ]
+      },
+      {
+        test: /\.js$/,
+        exclude: path.resolve(__dirname, `packages/security-process/src`),
+        use: [
+          { loader: 'thread-loader', options: { workerParallelJobs: 50 } },
+          {
+            loader: 'babel-loader',
+            options: mainProcessBabelConfig(null, `./packages/main-process`)
+          }
         ]
       },
       {
@@ -68,6 +92,9 @@ module.exports = {
       }
     ]
   },
+  // performance: {
+  //   hints: `error`
+  // },
   plugins: [
     new CleanWebpackPlugin(),
     new Webpack.DefinePlugin({
@@ -75,8 +102,19 @@ module.exports = {
       NETWORK_TYPE: JSON.stringify(envConfig.NETWORK_TYPE)
     }),
     new HtmlWebpackPlugin({
-      template: PATHS.src + '/index.html',
+      chunks: [`index`],
+      template: './packages/root-process/src/index.html',
       filename: 'index.html'
+    }),
+    new HtmlWebpackPlugin({
+      chunks: [`main`],
+      template: './packages/main-process/src/index.html',
+      filename: 'main.html'
+    }),
+    new HtmlWebpackPlugin({
+      chunks: [`security`],
+      template: './packages/security-process/src/index.html',
+      filename: 'security.html'
     }),
     new Webpack.IgnorePlugin({
       resourceRegExp: /^\.\/locale$/,
@@ -104,35 +142,6 @@ module.exports = {
     concatenateModules: true,
     runtimeChunk: {
       name: `manifest.${manifestCacheBust}`
-    },
-    splitChunks: {
-      cacheGroups: {
-        default: {
-          chunks: 'initial',
-          name: 'app',
-          priority: -20,
-          reuseExistingChunk: true
-        },
-        vendor: {
-          chunks: 'initial',
-          name: 'vendor',
-          priority: -10,
-          test: function(module) {
-            // ensure other packages in mono repo don't get put into vendor bundle
-            return (
-              module.resource &&
-              module.resource.indexOf('blockchain-wallet-v4-frontend/src') ===
-                -1 &&
-              module.resource.indexOf(
-                'node_modules/blockchain-info-components/src'
-              ) === -1 &&
-              module.resource.indexOf(
-                'node_modules/blockchain-wallet-v4/src'
-              ) === -1
-            )
-          }
-        }
-      }
     }
   }
 }

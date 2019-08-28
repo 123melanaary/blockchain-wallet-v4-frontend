@@ -7,12 +7,11 @@ const UglifyJSPlugin = require('uglifyjs-webpack-plugin')
 const Webpack = require('webpack')
 const path = require('path')
 const fs = require('fs')
-const PATHS = require('../../config/paths')
-const mockWalletOptions = require('../../config/mocks/wallet-options-v4.json')
-const iSignThisDomain =
-  mockWalletOptions.platforms.web.coinify.config.iSignThisDomain
-const coinifyPaymentDomain =
-  mockWalletOptions.platforms.web.coinify.config.coinifyPaymentDomain
+const PATHS = require('./config/paths')
+const mockWalletOptions = require('./config/mocks/wallet-options-v4.json')
+
+const mainProcessBabelConfig = require(`./packages/main-process/babel.config`)
+const securityProcessBabelConfig = require(`./packages/security-process/babel.config`)
 
 let envConfig = {}
 let manifestCacheBust = new Date().getTime()
@@ -57,7 +56,9 @@ module.exports = {
     fs: 'empty'
   },
   entry: {
-    app: ['@babel/polyfill', PATHS.src + '/index.js']
+    index: ['@babel/polyfill', `./packages/root-process/src/index.js`],
+    main: ['@babel/polyfill', './packages/main-process/src/index.js'],
+    security: ['@babel/polyfill', './packages/security-process/src/index.js']
   },
   output: {
     path: PATHS.ciBuild,
@@ -69,9 +70,27 @@ module.exports = {
     rules: [
       {
         test: /\.js$/,
+        include: path.resolve(__dirname, `packages/security-process/src`),
         use: [
           { loader: 'thread-loader', options: { workerParallelJobs: 50 } },
-          'babel-loader'
+          {
+            loader: 'babel-loader',
+            options: securityProcessBabelConfig(
+              null,
+              `./packages/security-process`
+            )
+          }
+        ]
+      },
+      {
+        test: /\.js$/,
+        exclude: [path.resolve(__dirname, `packages/security-process/src`)],
+        use: [
+          { loader: 'thread-loader', options: { workerParallelJobs: 50 } },
+          {
+            loader: 'babel-loader',
+            options: mainProcessBabelConfig(null, `./packages/main-process`)
+          }
         ]
       },
       {
@@ -108,7 +127,7 @@ module.exports = {
     ]
   },
   performance: {
-    hints: false
+    hints: `error`
   },
   plugins: [
     new CleanWebpackPlugin(),
@@ -118,8 +137,19 @@ module.exports = {
       NETWORK_TYPE: JSON.stringify(envConfig.NETWORK_TYPE)
     }),
     new HtmlWebpackPlugin({
-      template: PATHS.src + '/index.html',
+      chunks: [`index`],
+      template: './packages/root-process/src/index.html',
       filename: 'index.html'
+    }),
+    new HtmlWebpackPlugin({
+      chunks: [`main`],
+      template: './packages/main-process/src/index.html',
+      filename: 'main.html'
+    }),
+    new HtmlWebpackPlugin({
+      chunks: [`security`],
+      template: './packages/security-process/src/index.html',
+      filename: 'security.html'
     }),
     new Webpack.IgnorePlugin({
       resourceRegExp: /^\.\/locale$/,
@@ -146,35 +176,6 @@ module.exports = {
     concatenateModules: true,
     runtimeChunk: {
       name: `manifest.${manifestCacheBust}`
-    },
-    splitChunks: {
-      cacheGroups: {
-        default: {
-          chunks: 'initial',
-          name: 'app',
-          priority: -20,
-          reuseExistingChunk: true
-        },
-        vendor: {
-          chunks: 'initial',
-          name: 'vendor',
-          priority: -10,
-          test: function(module) {
-            // ensure other packages in mono repo don't get put into vendor bundle
-            return (
-              module.resource &&
-              module.resource.indexOf('blockchain-wallet-v4-frontend/src') ===
-                -1 &&
-              module.resource.indexOf(
-                'node_modules/blockchain-info-components/src'
-              ) === -1 &&
-              module.resource.indexOf(
-                'node_modules/blockchain-wallet-v4/src'
-              ) === -1
-            )
-          }
-        }
-      }
     }
   },
   devServer: {
@@ -201,11 +202,13 @@ module.exports = {
           walletHelper: envConfig.WALLET_HELPER_DOMAIN,
           veriff: envConfig.VERIFF_URL,
           comWalletApp: envConfig.COM_WALLET_APP,
+          coinifyPaymentDomain: envConfig.COINIFY_PAYMENT_DOMAIN,
           comRoot: envConfig.COM_ROOT,
           ledgerSocket: envConfig.LEDGER_SOCKET_URL,
           ledger: localhostUrl + '/ledger', // will trigger reverse proxy
           horizon: envConfig.HORIZON_URL,
-          coinify: envConfig.COINIFY_URL
+          coinify: envConfig.COINIFY_URL,
+          thePit: envConfig.THE_PIT_URL
         }
 
         if (process.env.NODE_ENV === 'testnet') {
@@ -249,18 +252,18 @@ module.exports = {
     headers: {
       'Access-Control-Allow-Origin': '*',
       'Content-Security-Policy': [
-        "img-src 'self' data: blob:",
-        "script-src 'self'",
-        "style-src 'self' 'unsafe-inline'",
-        `frame-src ${iSignThisDomain} ${coinifyPaymentDomain} ${
+        `img-src ${localhostUrl} data: blob:`,
+        `script-src ${localhostUrl}`,
+        `style-src ${localhostUrl} 'unsafe-inline'`,
+        `frame-src ${envConfig.COINIFY_PAYMENT_DOMAIN} ${
           envConfig.WALLET_HELPER_DOMAIN
-        } ${envConfig.ROOT_URL} https://localhost:8080 http://localhost:8080`,
-        `child-src ${iSignThisDomain} ${coinifyPaymentDomain} ${
+        } ${envConfig.ROOT_URL} https://magic.veriff.me ${localhostUrl}`,
+        `child-src ${envConfig.COINIFY_PAYMENT_DOMAIN} ${
           envConfig.WALLET_HELPER_DOMAIN
         } blob:`,
         [
           'connect-src',
-          "'self'",
+          localhostUrl,
           'ws://localhost:8080',
           'wss://localhost:8080',
           'wss://api.ledgerwallet.com',
@@ -273,6 +276,7 @@ module.exports = {
           envConfig.VERIFF_URL,
           envConfig.LEDGER_SOCKET_URL,
           envConfig.HORIZON_URL,
+          'https://friendbot.stellar.org',
           'https://app-api.coinify.com',
           'https://app-api.sandbox.coinify.com',
           'https://api.sfox.com',
@@ -286,8 +290,8 @@ module.exports = {
           'https://shapeshift.io'
         ].join(' '),
         "object-src 'none'",
-        "media-src 'self' https://storage.googleapis.com/bc_public_assets/ data: mediastream: blob:",
-        "font-src 'self'"
+        `media-src ${localhostUrl} https://storage.googleapis.com/bc_public_assets/ data: mediastream: blob:`,
+        `font-src ${localhostUrl}`
       ].join('; ')
     }
   }

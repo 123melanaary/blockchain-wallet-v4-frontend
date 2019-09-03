@@ -1,4 +1,4 @@
-import Modals from 'modals'
+import { replace } from 'ramda'
 import React from 'react'
 import { connect } from 'react-redux'
 import { Redirect, Route } from 'react-router-dom'
@@ -7,6 +7,7 @@ import styled from 'styled-components'
 import Header from './Header'
 import AnalyticsTracker from 'providers/AnalyticsTracker'
 import ErrorBoundary from 'providers/ErrorBoundaryProvider'
+import Modals from 'modals'
 import { selectors } from 'data'
 
 const Wrapper = styled.div`
@@ -59,7 +60,12 @@ const ContentContainer = styled.div`
 
 class SecurityLayoutContainer extends React.PureComponent {
   render () {
-    const { component: Component, isAuthenticated, ...rest } = this.props
+    const {
+      component: Component,
+      isAuthenticated,
+      location,
+      ...rest
+    } = this.props
 
     return isAuthenticated ? (
       <React.Fragment>
@@ -73,7 +79,9 @@ class SecurityLayoutContainer extends React.PureComponent {
                 <HeaderContainer>
                   <Header />
                 </HeaderContainer>
-                <ContentContainer>
+                <ContentContainer
+                  data-e2e={`page${replace(/\//g, '-', location.pathname)}`}
+                >
                   <Component {...matchProps} />
                 </ContentContainer>
               </ErrorBoundary>

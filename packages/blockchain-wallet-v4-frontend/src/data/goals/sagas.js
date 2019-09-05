@@ -155,13 +155,7 @@ export default ({ api }) => {
   const runPaymentProtocolGoal = function * (goal) {
     const { id, data } = goal
     yield put(actions.goals.deleteGoal(id))
-    // TODO: pass coin type once more deeplink types are supported
-    yield put(
-      actions.analytics.logEvent([
-        ...TRANSACTION_EVENTS.BITPAY_URL_DEEPLINK,
-        'BTC'
-      ])
-    )
+    yield put(actions.analytics.logEvent(TRANSACTION_EVENTS.BITPAY_INITIALIZED))
 
     yield call(getBtcBalance)
     const { r } = data
@@ -221,12 +215,6 @@ export default ({ api }) => {
       )
     } catch (e) {
       yield put(actions.alerts.displayInfo(C.BITPAY_INVOICE_NOT_FOUND_ERROR))
-      yield put(
-        actions.analytics.logEvent([
-          ...TRANSACTION_EVENTS.BITPAY_FAILURE,
-          'invoice not found'
-        ])
-      )
       yield put(
         actions.logs.logErrorMessage(logLocation, 'runPaymentProtocolGoal', e)
       )
